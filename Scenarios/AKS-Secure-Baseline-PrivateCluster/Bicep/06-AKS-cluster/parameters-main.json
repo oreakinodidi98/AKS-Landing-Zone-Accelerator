@@ -40,6 +40,12 @@
       },
       "aksClusterName": {
         "value": "aksCluster"
+      },
+      "aksadminaccessprincipalId": { 
+        "value": "96c53ae4-d35e-4e98-9360-a42e945e83dc" 
+      },
+      "kubernetesVersion":         { 
+        "value": "1.30.8" 
       }
     }
   }

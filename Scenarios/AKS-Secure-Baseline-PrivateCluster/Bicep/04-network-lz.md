@@ -17,6 +17,19 @@ cd ../04-Network-LZ
 
 Review "parameters-main.json" and update the values as required. Please note to verify the Azure Firewall Private IP (dhcp options in parameters-main.json) from the previous deployment in step 03. Once the files are updated, deploy using az cli or Az PowerShell
 
+## Enable Microsoft.Compute feature EncryptionAtHost
+
+- Register the feature: `Register-AzProviderFeature -ProviderNamespace "Microsoft.Compute" -FeatureName "EncryptionAtHost"`
+
+- Check registration status (repeat until "Registered")
+`Get-AzProviderFeature -ProviderNamespace "Microsoft.Compute" -FeatureName "EncryptionAtHost"`
+
+- Register the resource provider so the feature becomes usable
+`Register-AzResourceProvider -ProviderNamespace "Microsoft.Compute"`
+
+- Check provider registration state:
+`(Get-AzResourceProvider -ProviderNamespace "Microsoft.Compute").RegistrationState`
+
 # [CLI](#tab/CLI)
 
 ```azurecli
