@@ -1,0 +1,208 @@
+name: 'AKS-SecureBaseline-$(Date:yyyyMMdd)-$(Rev:r)'
+
+trigger: none # change to below
+
+# # PR triggers for validation
+# pr:
+#   branches:
+#     include:
+#     - main
+#   paths:
+#     include:
+#     - Scenarios/AKS-Secure-Baseline-PrivateCluster/Bicep/**
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  - name: workingDirectory
+    value: '$(System.DefaultWorkingDirectory)/Scenarios/AKS-Secure-Baseline-PrivateCluster/Bicep'
+  - name: adminGroupObjectId
+    value: '96c53ae4-d35e-4e98-9360-a42e945e83dc' # This should be replaced with your admin group ID
+  - name: kubernetesVersion
+    value: '1.30.8' # Update this as needed or make it a parameter
+  - name: resourceGroupName
+    value: 'Ado_AKS_landingzone' # Update this as needed 
+  - name: vmImageName
+    value: 'ubuntu-latest' # Update this as needed 
+  - name: subscriptionId
+    value: 'cb5b077c-3ef5-4b2e-83e5-490cc5ca0e19' # Replace with your subscription ID
+  - name: region
+    value: 'uksouth' # Replace with your subscription ID
+  - name: nsgBastionName
+    value: 'nsg-bastion'
+
+stages:
+- stage: Validate_Bicep
+  displayName: 'Validate Bicep Template'
+  jobs:
+  - job: ValidateBicep
+    pool:
+      vmImage: $(vmImageName)
+    steps:
+      - task: AzureResourceManagerTemplateDeployment@3
+        displayName: 'Validate 03-Network-Hub templates'
+        inputs:
+          deploymentScope: 'Subscription'
+          azureResourceManagerConnection: 'ADO_AKSlandingzone'
+          subscriptionId: '$(subscriptionId)'
+          location: '$(region)'
+          templateLocation: 'Linked artifact'
+          csmFile: '$(workingDirectory)/03-Network-Hub/main.bicep'
+          csmParametersFile: '$(workingDirectory)/03-Network-Hub/parameters-main.json'
+          overrideParameters: '-location $(region) -nsgBastionName $(nsgBastionName) -spokeSubnetAKSPrefix 10.1.1.0/24'
+          deploymentMode: 'Validation'
+          deploymentName: 'Validate-NetworkHub-$(Build.BuildNumber)'
+
+      - task: AzureResourceManagerTemplateDeployment@3
+        displayName: 'Validate 04-Network-LZ templates'
+        inputs:
+          deploymentScope: 'Subscription'
+          azureResourceManagerConnection: 'ADO_AKSlandingzone'
+          subscriptionId: '$(subscriptionId)'
+          location: '$(region)'
+          templateLocation: 'Linked artifact'
+          csmFile: '$(workingDirectory)/04-Network-LZ/main.bicep'
+          csmParametersFile: '$(workingDirectory)/04-Network-LZ/parameters-main.json'
+          deploymentMode: 'Validation'
+          deploymentName: 'Validate-NetworkSpoke-$(Build.BuildNumber)'
+
+      - task: AzureResourceManagerTemplateDeployment@3
+        displayName: 'Validate 05-AKS-supporting templates'
+        inputs:
+          deploymentScope: 'Subscription'
+          azureResourceManagerConnection: 'ADO_AKSlandingzone'
+          subscriptionId: '$(subscriptionId)'
+          location: '$(region)'
+          templateLocation: 'Linked artifact'
+          csmFile: '$(workingDirectory)/05-AKS-supporting/main.bicep'
+          csmParametersFile: '$(workingDirectory)/05-AKS-supporting/parameters-main.json'
+          deploymentMode: 'Validation'
+          deploymentName: 'Validate-AKSSupporting-$(Build.BuildNumber)'
+
+      - task: AzureResourceManagerTemplateDeployment@3
+        displayName: 'Validate 06-AKS-cluster templates'
+        inputs:
+          deploymentScope: 'Subscription'
+          azureResourceManagerConnection: 'ADO_AKSlandingzone'
+          subscriptionId: '$(subscriptionId)'
+          location: '$(region)'
+          templateLocation: 'Linked artifact'
+          csmFile: '$(workingDirectory)/06-AKS-cluster/main.bicep'
+          csmParametersFile: '$(workingDirectory)/06-AKS-cluster/parameters-main.json'
+          overrideParameters: '-aksadminaccessprincipalId $(adminGroupObjectId) -kubernetesVersion $(kubernetesVersion)'
+          deploymentMode: 'Validation'
+          deploymentName: 'Validate-AKSCluster-$(Build.BuildNumber)'
+
+- stage: Deploy_Network_Hub
+  displayName: 'Deploy Bicep Template Network-Hub Stage'
+  dependsOn: Validate_Bicep
+  jobs:
+  - job: DeployNetworkHub
+    pool:
+      vmImage: $(vmImageName)
+    steps:
+      - task: AzureResourceManagerTemplateDeployment@3
+        displayName: 'Deploy Network Hub resources'
+        inputs:
+          deploymentScope: 'Subscription'
+          azureResourceManagerConnection: 'ADO_AKSlandingzone'
+          subscriptionId: '$(subscriptionId)'
+          location: '$(region)'
+          templateLocation: 'Linked artifact'
+          csmFile: '$(workingDirectory)/03-Network-Hub/main.bicep'
+          csmParametersFile: '$(workingDirectory)/03-Network-Hub/parameters-main.json'
+          overrideParameters: '-location $(region) -nsgBastionName $(nsgBastionName)'
+          deploymentMode: 'Incremental'
+          deploymentName: 'DeployNetworkHub'
+
+- stage: Deploy_Network_LZ
+  displayName: 'Deploy Bicep Template Network-LZ Stage'
+  dependsOn: Deploy_Network_Hub
+  jobs:
+  - job: DeployNetworkLZ
+    pool:
+      vmImage: $(vmImageName)
+    steps:
+      - task: AzureResourceManagerTemplateDeployment@3
+        displayName: 'Deploy Network LZ resources'
+        inputs:
+          deploymentScope: 'Subscription'
+          azureResourceManagerConnection: 'ADO_AKSlandingzone'
+          subscriptionId: '$(subscriptionId)'
+          location: '$(region)'
+          templateLocation: 'Linked artifact'
+          csmFile: '$(workingDirectory)/04-Network-LZ/main.bicep'
+          csmParametersFile: '$(workingDirectory)/04-Network-LZ/parameters-main.json'
+          deploymentMode: 'Incremental'
+          deploymentName: 'DeployNetworkLZ'
+
+- stage: Deploy_AKS_Supporting
+  displayName: 'Deploy Bicep Template AKS Supporting Stage'
+  dependsOn: Deploy_Network_LZ
+  jobs:
+  - job: DeployAKSSupporting
+    pool:
+      vmImage: $(vmImageName)
+    steps:
+      - task: AzureResourceManagerTemplateDeployment@3
+        displayName: 'Deploy AKS Supporting resources'
+        inputs:
+          deploymentScope: 'Subscription'
+          azureResourceManagerConnection: 'ADO_AKSlandingzone'
+          subscriptionId: '$(subscriptionId)'
+          location: '$(region)'
+          templateLocation: 'Linked artifact'
+          csmFile: '$(workingDirectory)/05-AKS-supporting/main.bicep'
+          csmParametersFile: '$(workingDirectory)/05-AKS-supporting/parameters-main.json'
+          deploymentMode: 'Incremental'
+          deploymentName: 'DeployAKSSupporting'
+
+- stage: Deploy_AKS_Cluster
+  displayName: 'Deploy Bicep Template AKS Cluster Stage'
+  dependsOn: Deploy_AKS_Supporting
+  jobs:
+  - job: DeployAKSCluster
+    pool:
+      vmImage: $(vmImageName)
+    steps:
+      - task: AzureResourceManagerTemplateDeployment@3
+        displayName: 'Deploy AKS Cluster resources'
+        inputs:
+          deploymentScope: 'Subscription'
+          azureResourceManagerConnection: 'ADO_AKSlandingzone'
+          subscriptionId: '$(subscriptionId)'
+          location: '$(region)'
+          templateLocation: 'Linked artifact'
+          csmFile: '$(workingDirectory)/06-AKS-cluster/main.bicep'
+          csmParametersFile: '$(workingDirectory)/06-AKS-cluster/parameters-main.json'
+          overrideParameters: '-aksadminaccessprincipalId $(adminGroupObjectId) -kubernetesVersion $(kubernetesVersion)'
+          deploymentMode: 'Incremental'
+          deploymentName: 'DeployAKSSupporting'
+
+# can comment out
+- stage: Deploy_workload
+  displayName: 'Deploy AKS Workload'
+  dependsOn: Deploy_AKS_Cluster
+  jobs:
+  - job: DeployAKSWorkload
+    pool:
+      vmImage: $(vmImageName)
+    steps:
+      - task: AzureCLI@2
+        inputs:
+          azureSubscription: 'ADO_AKSlandingzone'
+          scriptType: 'batch'
+          scriptLocation: 'inlineScript'
+          inlineScript: |
+            echo "Retrieving AKS credentials..."
+              # Get resource group name from parameter file
+            RESOURCE_GROUP=$(az deployment sub show --name AKS-Cluster-Deployment --query properties.parameters.rgName.value -o tsv)
+            CLUSTER_NAME=$(az deployment sub show --name AKS-Cluster-Deployment --query properties.parameters.aksClusterName.value -o tsv)
+                            
+              # Get AKS credentials
+            az aks get-credentials --resource-group $RESOURCE_GROUP --name $CLUSTER_NAME --admin
+                            
+              # Deploy AKS Store Demo from 07-workload
+            echo "Deploying workload..."
+            kubectl apply -f https://github.com/Azure-Samples/aks-store-demo/releases/latest/download/aks-store-demo.yaml
